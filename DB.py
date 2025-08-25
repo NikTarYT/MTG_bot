@@ -228,7 +228,7 @@ class Database:
             ''', (chat_id, admin_id))
             return True
 
-    def get_admin_chat(self, admin_id: int) -> int | None:
+    def get_admin_chat(self, admin_id: int) -> Union[str , None]:
         """Возвращает chat_id для админа или None"""
         cursor = self.conn.cursor()
         cursor.execute('SELECT chat_id FROM chat_admins WHERE admin_id=?', (admin_id,))
