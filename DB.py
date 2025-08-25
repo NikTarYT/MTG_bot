@@ -1,6 +1,8 @@
 import sqlite3
 import pickle
 from Message import Message
+from typing import Union
+
 class Database:
     def __init__(self, db_name='mtg_bot.db'):
         self.conn = sqlite3.connect(db_name)
