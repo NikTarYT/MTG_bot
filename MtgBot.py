@@ -1,8 +1,6 @@
 import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants, LinkPreviewOptions
-from dotenv import load_dotenv  # Импортируем функцию для загрузки .env
-load_dotenv()  # Загружаем переменные из файла .env
 from telegram.ext import ApplicationBuilder, ChatMemberHandler, CallbackContext, CallbackQueryHandler, filters, MessageHandler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -365,7 +363,6 @@ class MtgBot:
         query = update.callback_query
         await query.answer()
     
-        # Сохраняем выбранный день
         selected_day = query.data.split('_')[1]
         week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
     
@@ -374,12 +371,10 @@ class MtgBot:
     
         context.chat_data['message'].day_of_week = selected_day
 
-        # Правильно вычисляем день уведомления (за 3 дня до)
         selected_day_index = week.index(selected_day)
         notice_day_index = (selected_day_index - 3) % 7  # %7 для циклического перехода
         context.chat_data['message'].day_of_notice = week[notice_day_index]
     
-        # Сохраняем время
         h, m = context.chat_data['message'].time.split(":")
         h, m = int(h), int(m)
         context.chat_data['message'].time = f"{h:02d}:{m:02d}"
@@ -531,6 +526,11 @@ class MtgBot:
 """main loop"""
 if __name__ == '__main__':
     bot = MtgBot()
+
+    token = os.getenv('MTG_BOT')
+    if token is None:
+        logging.error("Не удалось найти переменную окружения 'MTG_BOT'. Проверьте настройки на PythonAnywhere.")
+        exit(1)
 
     application = ApplicationBuilder().token(os.getenv('MTG_BOT')).build()
     application.post_init = bot.init_scheduler
