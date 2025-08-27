@@ -372,7 +372,7 @@ class MtgBot:
         context.chat_data['message'].day_of_week = selected_day
 
         selected_day_index = week.index(selected_day)
-        notice_day_index = (selected_day_index - 3) % 7  # %7 для циклического перехода
+        notice_day_index = (selected_day_index - 2) % 7  # %7 для циклического перехода
         context.chat_data['message'].day_of_notice = week[notice_day_index]
     
         h, m = context.chat_data['message'].time.split(":")
