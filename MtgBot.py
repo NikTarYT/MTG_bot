@@ -47,6 +47,12 @@ class MtgBot:
         self.scheduler = None
         self.message_state = MessageState.DEFAULT
 
+    async def start_command(self, update: Update, context: CallbackContext):
+        context.user_data['started'] = True
+        await update.message.reply_text(
+            "Привет! Я бот для организации мероприятий. Добавьте меня в группу как администратора."
+        )
+
     async def init_scheduler(self, application):
         self.scheduler=AsyncIOScheduler()
         self.bot=application.bot
@@ -161,6 +167,9 @@ class MtgBot:
         if not self.db.get_admin_chat(chat_id):
             logger.info(f"[ADMIN_PANEL] user {chat_id} attempt to call admin_panel, but was not detected in database!")
             await context.bot.send_message(text="Перед началом работы вы должны добавить меня в чат либо быть его админом!",chat_id=chat_id)
+            return
+        if not context.user_data.get( 'started' ):
+            logger.info(f"[ADMIN_PANEL] user {chat_id} can't send message before start")
             return
         # TODO 
         # Emoji!!!!
@@ -394,6 +403,10 @@ class MtgBot:
             message_id = context.chat_data['db_id']
         except Exception as e:
             logger.error(f"[ADMIN_INPUT] Cannot retrive message_id: {e}")
+            return
+        except KeyError as e:
+            logger.error(f"[ADMIN_INPUT] Cannot retrieve message_id: {e}")
+            return
         
         if self.message_state == MessageState.TIME:
             try:
@@ -532,6 +545,7 @@ if __name__ == '__main__':
         logging.error("Не удалось найти переменную окружения 'MTG_BOT'. Проверьте настройки на PythonAnywhere.")
         exit(1)
 
+    application.add_handler(CommandHandler("start", bot.start_command))
     application = ApplicationBuilder().token(os.getenv('MTG_BOT')).build()
     application.post_init = bot.init_scheduler
     application.add_error_handler(error_handler)
