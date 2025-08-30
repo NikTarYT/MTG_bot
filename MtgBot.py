@@ -12,6 +12,16 @@ from Message import Message
 from enum import Enum, auto
 
 locale.setlocale(locale.LC_ALL, 'ru_RU.UTF-8')  # Для корректного отображения дат/времени
+
+def get_bot_token():
+    """Функция для получения токена из файла token.txt"""
+    try:
+        with open('token.txt', 'r') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        logging.error("Файл token.txt не найден! Создайте его и поместите туда токен бота.")
+        return None
+
 """logging init"""
 log_filename = "logs\\" + datetime.now().strftime("%d-%m-%Y") + ".log"
 logging.basicConfig(
@@ -540,17 +550,17 @@ class MtgBot:
 if __name__ == '__main__':
     bot = MtgBot()
 
-    token = os.getenv('MTG_BOT')
-    if token is None:
-        logging.error("Не удалось найти переменную окружения 'MTG_BOT'. Проверьте настройки на PythonAnywhere.")
-        exit(1)
+    # Получаем токен из файла
+    token = get_bot_token()
+    if not token:
+        exit("Ошибка: не удалось загрузить токен бота")
 
-    application.add_handler(CommandHandler("start", bot.start_command))
-    application = ApplicationBuilder().token(os.getenv('MTG_BOT')).build()
+    application = ApplicationBuilder().token(token).build()
     application.post_init = bot.init_scheduler
     application.add_error_handler(error_handler)
 
     application.add_handlers([
+        CommandHandler("start", bot.start_command),
         CallbackQueryHandler(bot.admin_panel, pattern='^a_'),
         CallbackQueryHandler(bot.message_render, pattern='^s_'),
         CallbackQueryHandler(bot.message_menu, pattern='^m_'),
