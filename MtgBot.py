@@ -57,12 +57,6 @@ class MtgBot:
         self.scheduler = None
         self.message_state = MessageState.DEFAULT
 
-    async def start_command(self, update: Update, context: CallbackContext):
-        context.user_data['started'] = True
-        await update.message.reply_text(
-            "Привет! Я бот для организации мероприятий. Добавьте меня в группу как администратора."
-        )
-
     async def init_scheduler(self, application):
         self.scheduler=AsyncIOScheduler()
         self.bot=application.bot
@@ -176,10 +170,7 @@ class MtgBot:
     async def send_admin_panel(self, update: Update, context: CallbackContext, chat_id: int = None):
         if not self.db.get_admin_chat(chat_id):
             logger.info(f"[ADMIN_PANEL] user {chat_id} attempt to call admin_panel, but was not detected in database!")
-            await context.bot.send_message(text="Перед началом работы вы должны добавить меня в чат либо быть его админом!",chat_id=chat_id)
-            return
-        if not context.user_data.get( 'started' ):
-            logger.info(f"[ADMIN_PANEL] user {chat_id} can't send message before start")
+            await context.bot.send_message(text="Перед началом работы вы должны добавить меня в чат!",chat_id=chat_id)
             return
         # TODO 
         # Emoji!!!!
@@ -560,7 +551,6 @@ if __name__ == '__main__':
     application.add_error_handler(error_handler)
 
     application.add_handlers([
-        CommandHandler("start", bot.start_command),
         CallbackQueryHandler(bot.admin_panel, pattern='^a_'),
         CallbackQueryHandler(bot.message_render, pattern='^s_'),
         CallbackQueryHandler(bot.message_menu, pattern='^m_'),
