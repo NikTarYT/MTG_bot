@@ -236,7 +236,12 @@ class MtgBot:
         keyboard = [[InlineKeyboardButton(f"{i+1}", callback_data=f"s_{message.db_id}")] for i, message in enumerate(messages)]
         keyboard.append([InlineKeyboardButton("Меню", callback_data="a_return")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        text_list = [f"{i+1}\\. {message.text} {self.format_time(message.time)} {context.chat_data['week'].get(message.day_of_week)}" for i, message in enumerate(messages)]
+
+        text_list = [
+        f"{i+1}\\. {self.escape_markdown_v2(message.text)} {self.format_time(message.time)} {context.chat_data['week'].get(message.day_of_week)}" 
+        for i, message in enumerate(messages)
+        ]
+        
         text = '\n'.join(text_list)
         await update.callback_query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=constants.ParseMode.MARKDOWN_V2)
 
