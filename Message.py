@@ -14,7 +14,7 @@ class Message:
         self.day_of_notice = None
         self.time = "12:00"
         self.links = ""
-        self.image = "[\\|](https://png.pngtree.com/thumb_back/fw800/background/20230610/pngtree-picture-of-a-blue-bird-on-a-black-background-image_2937385.jpg)"
+        self.image = "[\\\|](https://png.pngtree.com/thumb_back/fw800/background/20230610/pngtree-picture-of-a-blue-bird-on-a-black-background-image_2937385.jpg)"
         self.pin_id = None
         self.trigger = None  # Здесь будем хранить CronTrigger
 
