@@ -241,7 +241,7 @@ class MtgBot:
         f"{i+1}\\. {self.escape_markdown_v2(message.text)} {self.format_time(message.time)} {context.chat_data['week'].get(message.day_of_week)}" 
         for i, message in enumerate(messages)
         ]
-        
+
         text = '\n'.join(text_list)
         await update.callback_query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=constants.ParseMode.MARKDOWN_V2)
 
@@ -267,16 +267,18 @@ class MtgBot:
             [InlineKeyboardButton("Ссылки", callback_data=f"m_links"),InlineKeyboardButton("Перенести", callback_data=f"m_reschedule")],
             [InlineKeyboardButton("Список", callback_data="a_messages"),InlineKeyboardButton("Меню", callback_data="a_return")]
             ]
+        message_text = self.escape_markdown_v2(message.generate_message_text())
+
         if self.message_state == MessageState.DEFAULT:
             await update.callback_query.edit_message_text(
-                text=message.generate_message_text(),
+                text=message_text,  # ← Используем экранированный текст
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=constants.ParseMode.MARKDOWN_V2)
         else:
             await context.bot.edit_message_text(
                 chat_id=update.message.chat_id,
                 message_id=context.chat_data['edit_id'].id,
-                text=message.generate_message_text(),
+                text=message_text,  # ← Используем экранированный текст
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=constants.ParseMode.MARKDOWN_V2)
 
