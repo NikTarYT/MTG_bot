@@ -3,3 +3,4 @@ logs
 __pycache__
 *.db
 venv
+token.txt

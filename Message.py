@@ -57,29 +57,43 @@ class Message:
     
     def generate_message_text(self):
         """Генерирует текст финального сообщения с Markdown форматированием"""
+        # Функция для экранирования специальных символов MarkdownV2
+        def escape_markdown(text):
+            if not text:
+                return ""
+            escape_chars = r'_*[]()~`>#+-=|{}.!'
+            return ''.join(f'\\{char}' if char in escape_chars else char for char in text)
+        
+        # Экранируем все текстовые поля
+        escaped_text = escape_markdown(self.text)
+        escaped_image = escape_markdown(self.image)  # Экранируем изображение
+        escaped_links = escape_markdown(self.links)
+        
+        # Экранируем имена пользователей
         participants_text = '\n\t'.join(
-            f"[{p['full_name']}](t\\.me/{p['username']})" if p.get('username') 
-            else p['full_name'] 
+            f"[{escape_markdown(p['full_name'])}](t\\.me/{escape_markdown(p['username'])})" if p.get('username') 
+            else escape_markdown(p['full_name']) 
             for p in self.participants
         ) if self.participants else "Пока никто"
-        
+
         maybe_text = '\n\t'.join(
-            f"[{p['full_name']}](t\\.me/{p['username']})" if p.get('username') 
-            else p['full_name'] 
+            f"[{escape_markdown(p['full_name'])}](t\\.me/{escape_markdown(p['username'])})" if p.get('username') 
+            else escape_markdown(p['full_name']) 
             for p in self.maybe_participants
         ) if self.maybe_participants else "Пока никто"
-        hours,minute = map(int, self.time.split(":"))
+        
+        hours, minute = map(int, self.time.split(":"))
         time = f"{hours:02d}:{minute:02d}"
-        self.image = self.image.replace(".", "\\.").replace("-", "\\-").replace("_", "\\_")
+        
         message = (
-            f"{self.text}\n"
-            f"{self.date} {self.image} {time}\n\n"
-            f"{self.links}\n\n"
+            f"{escaped_text}\n"
+            f"{self.date} {escaped_image} {time}\n\n"  # Используем экранированное изображение
+            f"{escaped_links}\n\n"
             f"*Участвую:*\n\t{participants_text}\n\n"
             f"*Возможно:*\n\t{maybe_text}"
         )
-        
         return message
+
     # Остальные методы остаются без изменений
     def remove_participant(self, user_info):
         """Удаляет участника из списка"""

@@ -45,8 +45,13 @@ class MtgBot:
         Экранирует специальные символы MarkdownV2 для Telegram.
         Список символов: _ * [ ] ( ) ~ ` > # + - = | { } . !
         """
+        if not text:
+            return ""
+    
         escape_chars = r'_*[]()~`>#+-=|{}.!'
         return ''.join(f'\\{char}' if char in escape_chars else char for char in text)
+
+
 
     def format_time(self, str_to_f: str):
         hours, minutes = map(int, str_to_f.split(':'))
@@ -56,6 +61,12 @@ class MtgBot:
         self.db = Database()
         self.scheduler = None
         self.message_state = MessageState.DEFAULT
+
+    async def start_command(self, update: Update, context: CallbackContext):
+        context.user_data['started'] = True
+        await update.message.reply_text(
+            "Привет! Я бот для организации мероприятий. Добавьте меня в группу как администратора."
+        )
 
     async def init_scheduler(self, application):
         self.scheduler=AsyncIOScheduler()
@@ -170,7 +181,10 @@ class MtgBot:
     async def send_admin_panel(self, update: Update, context: CallbackContext, chat_id: int = None):
         if not self.db.get_admin_chat(chat_id):
             logger.info(f"[ADMIN_PANEL] user {chat_id} attempt to call admin_panel, but was not detected in database!")
-            await context.bot.send_message(text="Перед началом работы вы должны добавить меня в чат!",chat_id=chat_id)
+            await context.bot.send_message(text="Перед началом работы вы должны добавить меня в чат либо быть его админом!",chat_id=chat_id)
+            return
+        if not context.user_data.get( 'started' ):
+            logger.info(f"[ADMIN_PANEL] user {chat_id} can't send message before start")
             return
         # TODO 
         # Emoji!!!!
@@ -206,14 +220,14 @@ class MtgBot:
     async def admin_panel(self, update: Update, context: CallbackContext):
         self.message_state = MessageState.DEFAULT
 
-        context.chat_data['admin_id']=update.effective_user.id
+        context.chat_data['admin_id'] = update.effective_user.id
         _, command = update.callback_query.data.split('_')
         try:
             if command == "messages":
                 await self.message_list(update, context)
-            if command == "create":
+            elif command == "create":
                 await self.create_message(update, context)
-            if command == "return":
+            elif command == "return":
                 context.chat_data['panel_state'] = True
                 await self.send_admin_panel(update, context, context.chat_data['admin_id'])
             else:
@@ -236,14 +250,17 @@ class MtgBot:
         keyboard = [[InlineKeyboardButton(f"{i+1}", callback_data=f"s_{message.db_id}")] for i, message in enumerate(messages)]
         keyboard.append([InlineKeyboardButton("Меню", callback_data="a_return")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-
-        text_list = [
-        f"{i+1}\\. {self.escape_markdown_v2(message.text)} {self.format_time(message.time)} {context.chat_data['week'].get(message.day_of_week)}" 
-        for i, message in enumerate(messages)
-        ]
-
+        text_list = []
+        for i, message in enumerate(messages):
+            escaped_text = self.escape_markdown_v2(message.text)
+            text_list.append(f"{i+1}\\. {escaped_text} {self.format_time(message.time)} {context.chat_data['week'].get(message.day_of_week)}")
+    
         text = '\n'.join(text_list)
-        await update.callback_query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=constants.ParseMode.MARKDOWN_V2)
+        await update.callback_query.edit_message_text(
+            text=text, 
+            reply_markup=reply_markup, 
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
 
     async def message_render(self, update: Update, context: CallbackContext):
         context.chat_data['week']={'mon': 'Пн','tue': 'Вт','wed': 'Ср','thu': 'Чт','fri': 'Пт','sat': 'Сб','sun': 'Вс'}
@@ -255,7 +272,7 @@ class MtgBot:
             if context.chat_data['db_id']:
                 db_id = context.chat_data['db_id']
                 if self.db.load_message(db_id):
-                   message_id = db_id
+                    message_id = db_id
         except:
             logger.warning(f"[MESSAGE_RENDER] Cannot parse context.chat_data['db_id']. Instead using \"{message_id}\"")
 
@@ -267,18 +284,20 @@ class MtgBot:
             [InlineKeyboardButton("Ссылки", callback_data=f"m_links"),InlineKeyboardButton("Перенести", callback_data=f"m_reschedule")],
             [InlineKeyboardButton("Список", callback_data="a_messages"),InlineKeyboardButton("Меню", callback_data="a_return")]
             ]
-        message_text = self.escape_markdown_v2(message.generate_message_text())
-
+        
+        # Убираем вызов escape_markdown_v2, так как текст уже экранирован в generate_message_text()
+        message_text = message.generate_message_text()
+        
         if self.message_state == MessageState.DEFAULT:
             await update.callback_query.edit_message_text(
-                text=message_text,  # ← Используем экранированный текст
+                text=message_text,  # Используем уже экранированный текст
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=constants.ParseMode.MARKDOWN_V2)
         else:
             await context.bot.edit_message_text(
                 chat_id=update.message.chat_id,
                 message_id=context.chat_data['edit_id'].id,
-                text=message_text,  # ← Используем экранированный текст
+                text=message_text,  # Используем уже экранированный текст
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=constants.ParseMode.MARKDOWN_V2)
 
@@ -558,6 +577,7 @@ if __name__ == '__main__':
     application.add_error_handler(error_handler)
 
     application.add_handlers([
+        CommandHandler("start", bot.start_command),
         CallbackQueryHandler(bot.admin_panel, pattern='^a_'),
         CallbackQueryHandler(bot.message_render, pattern='^s_'),
         CallbackQueryHandler(bot.message_menu, pattern='^m_'),
