@@ -66,6 +66,7 @@ class Message:
         
         # Экранируем все текстовые поля
         escaped_text = escape_markdown(self.text)
+        escaped_image = escape_markdown(self.image)
         escaped_links = escape_markdown(self.links)
         
         # Экранируем имена пользователей
@@ -94,7 +95,7 @@ class Message:
         
         # Добавляем изображение как скрытую ссылку в конце
         if self.image:
-            message += f"\n\n{self.image}"
+            message += f"\n\n{escaped_image}"
         
         return message
 
