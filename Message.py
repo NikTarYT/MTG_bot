@@ -93,10 +93,6 @@ class Message:
             f"*Возможно:*\n\t{maybe_text}"
         )
         
-        # Добавляем изображение как скрытую ссылку в конце
-        if self.image:
-            message += f"\n\n{escaped_image}"
-        
         return message
 
     # Остальные методы остаются без изменений
