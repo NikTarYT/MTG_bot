@@ -183,9 +183,6 @@ class MtgBot:
             logger.info(f"[ADMIN_PANEL] user {chat_id} attempt to call admin_panel, but was not detected in database!")
             await context.bot.send_message(text="Перед началом работы вы должны добавить меня в чат либо быть его админом!",chat_id=chat_id)
             return
-        if not context.user_data.get( 'started' ):
-            logger.info(f"[ADMIN_PANEL] user {chat_id} can't send message before start")
-            return
         # TODO 
         # Emoji!!!!
         keyboard = InlineKeyboardMarkup([
