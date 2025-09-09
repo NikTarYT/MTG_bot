@@ -66,7 +66,6 @@ class Message:
         
         # Экранируем все текстовые поля
         escaped_text = escape_markdown(self.text)
-        escaped_image = escape_markdown(self.image)  # Экранируем изображение
         escaped_links = escape_markdown(self.links)
         
         # Экранируем имена пользователей
@@ -85,13 +84,18 @@ class Message:
         hours, minute = map(int, self.time.split(":"))
         time = f"{hours:02d}:{minute:02d}"
         
+        # Формируем сообщение без даты и времени отправления
         message = (
             f"{escaped_text}\n"
-            f"{self.date} {escaped_image} {time}\n\n"  # Используем экранированное изображение
             f"{escaped_links}\n\n"
             f"*Участвую:*\n\t{participants_text}\n\n"
             f"*Возможно:*\n\t{maybe_text}"
         )
+        
+        # Добавляем изображение как скрытую ссылку в конце
+        if self.image:
+            message += f"\n\n{self.image}"
+        
         return message
 
     # Остальные методы остаются без изменений
