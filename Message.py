@@ -14,7 +14,7 @@ class Message:
         self.day_of_notice = None
         self.time = "12:00"
         self.links = ""
-        self.image = "[\\|](https://png.pngtree.com/thumb_back/fw800/background/20230610/pngtree-picture-of-a-blue-bird-on-a-black-background-image_2937385.jpg)"
+        self.image = "[\u200b](https://i.pinimg.com/736x/a6/86/75/a686751d639e642196346106fb868623.jpg)"
         self.pin_id = None
         self.trigger = None  # Здесь будем хранить CronTrigger
 
@@ -89,10 +89,11 @@ class Message:
         message = (
             f"{escaped_text}\n"
             f"{escaped_links}\n\n"
+            f"\n\n{self.image}\n"
             f"*Участвую:*\n\t{participants_text}\n\n"
             f"*Возможно:*\n\t{maybe_text}"
         )
-        
+
         return message
 
     # Остальные методы остаются без изменений
