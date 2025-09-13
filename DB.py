@@ -215,6 +215,27 @@ class Database:
 
     # Обработка админов
 
+    def set_chat_admin(self, chat_id: int, admin_id: int) -> bool:
+        """Устанавливает админа для чата. Если уже есть админ - заменяет его."""
+        with self.conn:
+            cursor = self.conn.cursor()
+            
+            # Удаляем предыдущего админа этого чата (если есть)
+            cursor.execute('DELETE FROM chat_admins WHERE chat_id=?', (chat_id,))
+            
+            # Проверяем, не является ли пользователь уже админом другого чата
+            cursor.execute('SELECT 1 FROM chat_admins WHERE admin_id=?', (admin_id,))
+            if cursor.fetchone():
+                return False
+                
+            # Добавляем нового админа
+            cursor.execute('''
+            INSERT INTO chat_admins (chat_id, admin_id)
+            VALUES (?, ?)
+            ''', (chat_id, admin_id))
+            
+            return True
+
     def add_chat_admin(self, chat_id: int, admin_id: int) -> bool:
         """Добавляет админа для чата. Возвращает True если успешно"""
         with self.conn:

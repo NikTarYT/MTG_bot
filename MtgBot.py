@@ -64,9 +64,22 @@ class MtgBot:
 
     async def start_command(self, update: Update, context: CallbackContext):
         context.user_data['started'] = True
-        await update.message.reply_text(
-            "Привет! Я бот для организации мероприятий. Добавьте меня в группу как администратора."
-        )
+        user_id = update.effective_user.id
+        
+        # Проверяем, является ли пользователь администратором какого-либо чата
+        chat_id = self.db.get_admin_chat(user_id)
+        
+        if chat_id:
+            # Если пользователь админ - показываем админ-панель
+            await self.send_admin_panel(update, context, user_id)
+        else:
+            # Если не админ - показываем стандартное приветствие
+            await update.message.reply_text(
+                "Привет! Я бот для организации мероприятий. Добавьте меня в группу как администратора.\n\n"
+                "После добавления в группу используйте команду /set_admin в групповом чате, чтобы стать администратором бота."
+            )
+        
+
 
     async def init_scheduler(self, application):
         self.scheduler=AsyncIOScheduler()
@@ -99,7 +112,6 @@ class MtgBot:
             args=[db_id]
         )
         logger.info(f"Расписание обновлено: {day_of_week} в {hour}:{minute:02d} (GMT+3)")
-
 
 
     async def send_scheduled_message(self, db_id):
@@ -503,26 +515,51 @@ class MtgBot:
         await context.bot.send_message(text="Мероприятие успешно создано!",chat_id=admin_chat_id)
         await self.send_admin_panel(update, context, update.effective_user.id)
 
-    async def added_to_chat(self, update: Update, context: CallbackContext):
-            """Обрабатывает добавление бота в группу"""
-            for user in update.message.new_chat_members:
-                if user.id == context.bot.id:
-                    chat_id = update.effective_chat.id
-                    added_by = update.message.from_user.id
-
-                    if not self.db.add_chat_admin(chat_id, added_by):
-                        logger.error("Cannot add admin to database!")
-                    else:
-                        logger.info("Successed adding admin to database")
-                    
-                    # TODO:
-                    # Menu with keyboards for bot.admin_panel
-                    await context.bot.send_message(
-                        chat_id=added_by,
-                        parse_mode=constants.ParseMode.MARKDOWN_V2,
-                        text=f"Благодарю за добавление меня в чат\\!\nЧтобы я мог закреплять мероприятия назначьте меня админом\\."
-                    )
-                    await self.send_admin_panel(update, context, added_by)
+    async def set_admin_command(self, update: Update, context: CallbackContext):
+        """Обработчик команды /set_admin - назначает отправителя администратором бота"""
+        chat = update.effective_chat
+        user = update.effective_user
+        
+        # Проверяем, что команда используется в групповом чате
+        if chat.type not in ['group', 'supergroup']:
+            await update.message.reply_text("Эта команда работает только в групповых чатах!")
+            return
+        
+        # Проверяем, что пользователь является администратором чата
+        try:
+            chat_member = await context.bot.get_chat_member(chat.id, user.id)
+            if chat_member.status not in ['administrator', 'creator']:
+                await update.message.reply_text("Только администраторы чата могут использовать эту команду!")
+                return
+        except Exception as e:
+            logger.error(f"Ошибка при проверке прав администратора: {e}")
+            await update.message.reply_text("Ошибка при проверке прав доступа!")
+            return
+        
+        # Устанавливаем пользователя администратором этого чата
+        try:
+            success = self.db.set_chat_admin(chat.id, user.id)
+            
+            if success:
+                await update.message.reply_text(
+                    f"✅ Вы теперь администратор бота для этого чата!\n"
+                    f"Используйте личные сообщения с ботом для управления мероприятиями.",
+                    reply_to_message_id=update.message.message_id
+                )
+                logger.info(f"Пользователь {user.id} назначен администратором чата {chat.id}")
+            else:
+                await update.message.reply_text(
+                    "❌ Не удалось назначить администратора. Возможно, вы уже являетесь администратором другого чата.",
+                    reply_to_message_id=update.message.message_id
+                )
+                
+        except Exception as e:
+            logger.error(f"Ошибка при назначении администратора: {e}")
+            await update.message.reply_text(
+                "❌ Произошла ошибка при назначении администратора!",
+                reply_to_message_id=update.message.message_id
+            )
+    
     """Улетаем бля"""
     async def handle_migration(self, update: Update, context: CallbackContext):
         """Обновляет chat_id при миграции в супергруппу"""
@@ -575,6 +612,7 @@ if __name__ == '__main__':
 
     application.add_handlers([
         CommandHandler("start", bot.start_command),
+        CommandHandler("set_admin", bot.set_admin_command),
         CallbackQueryHandler(bot.admin_panel, pattern='^a_'),
         CallbackQueryHandler(bot.message_render, pattern='^s_'),
         CallbackQueryHandler(bot.message_menu, pattern='^m_'),
@@ -586,7 +624,6 @@ if __name__ == '__main__':
     ])
     
     application.add_handlers([
-        MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot.added_to_chat),
         ChatMemberHandler(bot.handle_chat_member_update),
         CallbackQueryHandler(bot.update_lists, pattern="^participate")
     ])
