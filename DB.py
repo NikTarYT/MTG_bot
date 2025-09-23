@@ -80,7 +80,7 @@ class Database:
             ))
             message.db_id = cursor.lastrowid
         
-        # Сохраняем участников
+            # ВАЖНО: Удаляем всех старых участников перед добавлением новых
         cursor.execute('DELETE FROM participants WHERE message_id=?', (message.db_id,))
         
         for user in message.participants:

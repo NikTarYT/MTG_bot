@@ -7,7 +7,7 @@ class Message:
         self.db_id = None
         self.chat_id = None
         self.text = "Вечернее соревнование"
-        self.participants = []  # Теперь храним словари с информацией о пользователях
+        self.participants = []
         self.maybe_participants = []
         self.date = None
         self.day_of_week = None
@@ -88,10 +88,9 @@ class Message:
         # Формируем сообщение без даты и времени отправления
         message = (
             f"{escaped_text}\n"
-            f"{escaped_links}\n\n"
-            f"\n\n{self.image}\n"
-            f"*Участвую:*\n\t{participants_text}\n\n"
-            f"*Возможно:*\n\t{maybe_text}"
+            f"\n\n{self.image}"
+            f"*Участвую \\({len(self.participants)}\\):*\n\t{participants_text}\n\n"
+            f"*Возможно \\({len(self.maybe_participants)}\\):*\n\t{maybe_text}"
         )
 
         return message

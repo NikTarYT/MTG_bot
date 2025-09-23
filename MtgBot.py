@@ -92,12 +92,26 @@ class MtgBot:
                 self.scheduler.add_job(
                     self.send_scheduled_message,
                     trigger=message.trigger,
-                    args=[message.chat_id]
+                    args=[message.chat_id],
+                    id=f"message_{message.db_id}"
                 )
 
     async def reschedule(self, day_of_week: str, hour: int, minute: int = 0, db_id: int = None):
         """Обновляет расписание с учётом GMT+3"""
-        self.scheduler.remove_all_jobs()
+
+        if db_id is None:
+            logger.error("reschedule вызван без db_id")
+            return
+        
+        
+        job_id = f"message_{db_id}"
+        # Удаляем старую задачу только для этого message (если есть)
+        try:
+            existing = self.scheduler.get_job(job_id)
+            if existing:
+                self.scheduler.remove_job(job_id)
+        except Exception:
+            pass
             
         moscow_tz = pytz.timezone("Europe/Moscow")
             
@@ -116,21 +130,42 @@ class MtgBot:
 
     async def send_scheduled_message(self, db_id):
         """Отправка запланированного сообщения для конкретного чата"""
-        message = self.db.load_message(db_id)
-        if not message:
-            logger.error(f"Сообщение {db_id} не найдено!")
+        try:
+            message = self.db.load_message(db_id)
+        except Exception as e:
+            logger.error(f"Сообщение {db_id} не найдено! {e}")
             return
         
+        if message.participants or message.maybe_participants:
+            message.participants = []
+            message.maybe_participants = []
+            try:
+                self.db.save_message(message)  # удалит старые записи и запишет пустые списки
+            except Exception as e:
+                logger.error(f"Не удалось очистить старые голоса для message {db_id}: {e}")
+
         try:
+            if message.pin_id:
+                try:
+                    await self.bot.unpin_chat_message(
+                        chat_id=message.chat_id,
+                        message_id=message.pin_id
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось открепить старое сообщение {message.pin_id}: {e}")
+
             msg = await self.bot.send_message(
                 text=message.generate_message_text(),
                 chat_id=message.chat_id,
                 reply_markup=self.get_keyboard(message),
                 parse_mode=constants.ParseMode.MARKDOWN_V2,
             )
+            
             message.pin_id = msg.message_id
-            # Сохраняем изменения в БД
-            self.db.save_message(message)
+            try:
+                self.db.save_message(message)
+            except Exception as e:
+                logger.error(f"Ошибка при сохранении pin_id для message {db_id}: {e}")
 
             await self.bot.pin_chat_message(
                 chat_id=message.chat_id,
@@ -348,6 +383,10 @@ class MtgBot:
 
             message = Message()
             message.chat_id = chat_id
+
+            message.participants = []
+            message.maybe_participants = []
+
             message = self.db.save_message(message)
             context.chat_data['db_id'] = message.db_id
             self.message_state = MessageState.TIME
