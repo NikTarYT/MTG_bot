@@ -645,14 +645,14 @@ if __name__ == '__main__':
     if not token:
         exit("Ошибка: не удалось загрузить токен бота")
 
-    http_proxy = os.environ.get('HTTP_PROXY')
-    https_proxy = os.environ.get('HTTPS_PROXY')
-    
-    print(f"Using proxy - HTTP: {http_proxy}, HTTPS: {https_proxy}")
-    
+        https_proxy = os.environ.get('HTTPS_PROXY')
+
+    print(f"Using proxy: {https_proxy}")
+
     # Создаем application с прокси
     if https_proxy:
-        application = ApplicationBuilder().token(token).proxy(https_proxy).build()
+        # Явно передаем прокси URL
+        application = ApplicationBuilder().token(token).proxy_url(https_proxy).build()
     else:
         application = ApplicationBuilder().token(token).build()
 
