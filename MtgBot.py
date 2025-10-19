@@ -647,16 +647,18 @@ if __name__ == '__main__':
 
         https_proxy = os.environ.get('HTTPS_PROXY')
 
+    
+    # Получаем прокси из переменных окружения
+    https_proxy = os.environ.get('HTTPS_PROXY')
+
     print(f"Using proxy: {https_proxy}")
 
     # Создаем application с прокси
     if https_proxy:
-        # Явно передаем прокси URL
         application = ApplicationBuilder().token(token).proxy_url(https_proxy).build()
     else:
         application = ApplicationBuilder().token(token).build()
 
-    application = ApplicationBuilder().token(token).build()
     application.post_init = bot.init_scheduler
     application.add_error_handler(error_handler)
 
