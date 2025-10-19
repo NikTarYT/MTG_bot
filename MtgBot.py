@@ -655,7 +655,7 @@ if __name__ == '__main__':
 
     # Создаем application с прокси
     if https_proxy:
-        application = ApplicationBuilder().token(token).proxy_url(https_proxy).build()
+        application = ApplicationBuilder().token(token).proxy(https_proxy).build()
     else:
         application = ApplicationBuilder().token(token).build()
 
