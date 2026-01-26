@@ -22,12 +22,18 @@ def get_bot_token():
         logging.error("Файл token.txt не найден!")
         return None
 
-log_filename = "logs\\" + datetime.now().strftime("%d-%m-%Y") + ".log"
+log_filename = "logs/" + datetime.now().strftime("%d-%m-%Y") + ".log"
+os.makedirs("logs", exist_ok=True)
+
+file_handler = logging.FileHandler(log_filename, encoding='utf-8')
+stream_handler = logging.StreamHandler()
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
-    handlers=[logging.FileHandler(log_filename),logging.StreamHandler()]
+    handlers=[file_handler, stream_handler]
 )
+
 logger = logging.getLogger(__name__)
 
 async def error_handler(update: Update, context: CallbackContext):
@@ -60,11 +66,33 @@ class MtgBot:
         chat_id = self.db.get_admin_chat(user_id)
         
         if chat_id:
-            await self.send_admin_panel(update, context, user_id)
+            await self.send_admin_panel(update, context, user_id)  # Исправленный вызов
         else:
             await update.message.reply_text(
                 "Привет! Я бот для организации мероприятий. Добавьте меня в группу как администратора.\n\n"
                 "После добавления в группу используйте команду /set_admin в групповом чате, чтобы стать администратором бота."
+            )
+    
+    async def send_admin_panel(self, update: Update, context: CallbackContext, user_id: int):
+        """Показывает админ-панель"""
+        keyboard = [
+            [InlineKeyboardButton("📋 Мои мероприятия", callback_data="a_messages")],
+            [InlineKeyboardButton("➕ Создать мероприятие", callback_data="a_create")],
+        ]
+        
+        text = "🎮 **Админ-панель**\n\nВыберите действие:"
+        
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                text=text,
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            await update.message.reply_text(
+                text=text,
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
     async def init_scheduler(self, application):
@@ -136,6 +164,7 @@ class MtgBot:
             try:
                 if message.pin_id:
                     try:
+                        # Открепляем старое сообщение - БЕЗ message_thread_id
                         await self.bot.unpin_chat_message(
                             chat_id=message.chat_id,
                             message_id=message.pin_id
@@ -143,21 +172,32 @@ class MtgBot:
                     except Exception as e:
                         logger.warning(f"Не удалось открепить старое сообщение: {e}")
 
-                msg = await self.bot.send_message(
-                    text=message.generate_message_text(),
-                    chat_id=message.chat_id,
-                    reply_markup=self.get_keyboard(message),
-                    parse_mode=constants.ParseMode.MARKDOWN_V2,
-                )
+                # Подготавливаем параметры для отправки
+                send_params = {
+                    'text': message.generate_message_text(),
+                    'chat_id': message.chat_id,
+                    'reply_markup': self.get_keyboard(message),
+                    'parse_mode': constants.ParseMode.MARKDOWN_V2,
+                }
+                
+                # Добавляем message_thread_id если указан
+                if message.message_thread_id:
+                    send_params['message_thread_id'] = message.message_thread_id
+                
+                msg = await self.bot.send_message(**send_params)
                 
                 message.pin_id = msg.message_id
                 self.db.save_message(message)
 
+                # Закрепляем сообщение
+                # Сообщение автоматически закрепится в том топике, куда было отправлено
                 await self.bot.pin_chat_message(
                     chat_id=message.chat_id,
                     message_id=message.pin_id,
+                    disable_notification=True  # Необязательно, чтобы не беспокоить участников
                 )
-                logger.info(f"Запланированное сообщение отправлено в чат {message.chat_id}")
+                
+                logger.info(f"Запланированное сообщение отправлено в чат {message.chat_id}, топик: {message.message_thread_id or 'нет'}")
                 break
                 
             except Exception as e:
@@ -237,79 +277,162 @@ class MtgBot:
                     logger.warning(f"Ошибка обновления, попытка {attempt + 1}: {e}")
                     await asyncio.sleep(1)
 
-    async def send_admin_panel(self, update: Update, context: CallbackContext, chat_id: int = None):
-        if not self.db.get_admin_chat(chat_id):
-            logger.info(f"[ADMIN_PANEL] user {chat_id} attempt to call admin_panel, but was not detected in database!")
-            await context.bot.send_message(text="Перед началом работы вы должны добавить меня в чат либо быть его админом!",chat_id=chat_id)
-            return
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Добавить", callback_data="a_create"), InlineKeyboardButton("Список", callback_data="a_messages")],
-        ])
-        
-        try:
-            if context.chat_data.get('panel_state'):
-                replayer = update.callback_query.message or update.message
-                await replayer.edit_text(
-                    text=f"*Админ панель*\n_Список \\~\\> Список активных мероприятий\nДобавить \\~\\> Добавление мероприятия_\n\n",
-                    reply_markup=keyboard,
-                    parse_mode=constants.ParseMode.MARKDOWN_V2)
-                return
-        except Exception as e:
-            logger.error(f"[ADMIN_PANEL] Cannot edit: {e}")
-        
-        await context.bot.send_message(
-            chat_id=chat_id,
-            parse_mode=constants.ParseMode.MARKDOWN_V2,
-            text=f"*Админ панель*\n_Список \\~\\> Список активных мероприятий\nДобавить \\~\\> Добавление мероприятия_\n\n",
-            reply_markup=keyboard
-        )
-
     async def admin_panel(self, update: Update, context: CallbackContext):
-        self.message_state = MessageState.DEFAULT
-        context.chat_data['admin_id'] = update.effective_user.id
-        _, command = update.callback_query.data.split('_')
+        logger.info(f"[ADMIN_PANEL] Called by user_id: {update.effective_user.id}, data: {update.callback_query.data if update.callback_query else 'None'}")        
+        try:
+            self.message_state = MessageState.DEFAULT
+            context.chat_data['admin_id'] = update.effective_user.id
+            
+            if not update.callback_query:
+                logger.error("[ADMIN_PANEL] No callback_query in update")
+                return
+                
+            data = update.callback_query.data
+            logger.info(f"[ADMIN_PANEL] Raw data: '{data}'")
+            
+            # Создаем простой и понятный обработчик
+            if data == "a_messages":
+                logger.info("[ADMIN_PANEL] Calling message_list")
+                await self.message_list(update, context)
+            elif data == "a_create":
+                logger.info("[ADMIN_PANEL] Calling create_message")
+                await self.create_message(update, context)
+            elif data == "a_change_topic":
+                logger.info("[ADMIN_PANEL] Calling change_topic_command")
+                await self.change_topic_command(update, context)
+            elif data == "a_return":
+                logger.info("[ADMIN_PANEL] Calling send_admin_panel")
+                await self.send_admin_panel(update, context, update.effective_user.id)
+            else:
+                logger.warning(f"[ADMIN_PANEL] Unknown command: {data}")
+                await update.callback_query.answer(f"Неизвестная команда: {data}")
+                
+        except Exception as e:
+            logger.error(f"[ADMIN_PANEL] Exception details:", exc_info=True)
+            logger.error(f"[ADMIN_PANEL] Exception type: {type(e).__name__}")
+            logger.error(f"[ADMIN_PANEL] Exception message: {str(e)}")
+            
+            # Отправим более детальную информацию
+            if update.callback_query:
+                try:
+                    await update.callback_query.answer(f"Ошибка: {type(e).__name__}: {str(e)[:50]}...")
+                except:
+                    pass
+
+    async def message_list(self, update: Update, context: CallbackContext, admin_id: int = None):
+        """Показывает все мероприятия из всех чатов администратора"""
+        logger.info(f"[MESSAGE_LIST] Called for admin_id: {admin_id}")
+        
+        if admin_id is None:
+            if update.callback_query:
+                admin_id = update.callback_query.from_user.id
+            else:
+                admin_id = update.effective_user.id
         
         try:
-            if command == "messages":
-                await self.message_list(update, context)
-            elif command == "create":
-                await self.create_message(update, context)
-            elif command == "return":
-                context.chat_data['panel_state'] = True
-                await self.send_admin_panel(update, context, context.chat_data['admin_id'])
-            else:
-                logger.warning(f"[ADMIN_PANEL] Cannot parse command \"{command}\"")
-        except Exception as e:
-            logger.error(f"[ADMIN_PANEL] Cannot parse command: {e}")
-
-    async def message_list(self, update: Update, context: CallbackContext):
-        context.chat_data['db_id'] = None
-        context.chat_data['week'] = {'mon': 'Пн','tue': 'Вт','wed': 'Ср','thu': 'Чт','fri': 'Пт','sat': 'Сб','sun': 'Вс'}
-        messages = self.db.load_messages(context.chat_data['admin_id'])
-        
-        if len(messages) <= 0:
-            await update.callback_query.edit_message_text(
-                text="Вы пока не создали ни одного мероприятия!",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Меню", callback_data="a_return")]])
-            )
-            return
+            # Загружаем все мероприятия администратора
+            messages = self.db.load_messages(admin_id)
             
-        keyboard = [[InlineKeyboardButton(f"{i+1}", callback_data=f"s_{message.db_id}")] for i, message in enumerate(messages)]
-        keyboard.append([InlineKeyboardButton("Меню", callback_data="a_return")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        text_list = []
-        for i, message in enumerate(messages):
-            escaped_text = self.escape_markdown_v2(message.text)
-            text_list.append(f"{i+1}\\. {escaped_text} {self.format_time(message.time)} {context.chat_data['week'].get(message.day_of_week)}")
-    
-        text = '\n'.join(text_list)
-        await update.callback_query.edit_message_text(
-            text=text, 
-            reply_markup=reply_markup, 
-            parse_mode=constants.ParseMode.MARKDOWN_V2
-        )
+            if not messages:
+                # Проверяем, есть ли у пользователя вообще чаты
+                if not self.db.user_has_chats(admin_id):
+                    text = "❌ Вы не являетесь администратором ни в одном чате.\n\n"
+                    text += "Попросите владельца чата добавить вас как администратора через команду:\n"
+                    text += "/set_admin @ваш_юзернейм"
+                else:
+                    text = "📭 У вас пока нет созданных мероприятий.\n\n"
+                    text += "Создайте первое мероприятие через админ-панель."
+                
+                if update.callback_query:
+                    await update.callback_query.edit_message_text(
+                        text=text,
+                        reply_markup=self.create_back_button("a_return")
+                    )
+                else:
+                    await update.message.reply_text(text)
+                return
+            
+            # Форматируем список мероприятий
+            text = f"📋 **Ваши мероприятия ({len(messages)})**\n\n"
+            
+            for i, msg in enumerate(messages, 1):
+                # Получаем информацию о чате
+                try:
+                    chat = await context.bot.get_chat(msg['chat_id'])
+                    chat_title = chat.title or f"Чат {msg['chat_id']}"
+                except Exception as e:
+                    logger.error(f"Error getting chat info: {e}")
+                    chat_title = f"Чат {msg['chat_id']}"
+                
+                # Форматируем день недели
+                days_translation = {
+                    'mon': 'Понедельник', 'tue': 'Вторник', 'wed': 'Среда',
+                    'thu': 'Четверг', 'fri': 'Пятница', 'sat': 'Суббота', 'sun': 'Воскресенье'
+                }
+                day_name = days_translation.get(msg['day_of_week'], msg['day_of_week'])
+                
+                # Обрезаем название события
+                event_name = msg['text'].split('\n')[0] if msg['text'] else "Без названия"
+                if len(event_name) > 30:
+                    event_name = event_name[:27] + "..."
+                
+                text += f"{i}. **{event_name}**\n"
+                text += f"   🗓 {day_name} в {msg['time']}\n"
+                text += f"   👥 {msg['participants_count']} участников\n"
+                text += f"   💬 {chat_title}"
+                
+                if msg['topic_id']:
+                    text += f" (топик: {msg['topic_id']})"
+                text += "\n\n"
+            
+            # Создаем инлайн-клавиатуру
+            keyboard = []
+            
+            # Кнопки для каждого мероприятия
+            for msg in messages:
+                event_name = msg['text'].split('\n')[0] if msg['text'] else "Без названия"
+                if len(event_name) > 15:
+                    event_name = event_name[:12] + "..."
+                
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"✏️ {event_name}",
+                        callback_data=f"s_{msg['id']}"
+                    )
+                ])
+            
+            # Кнопка возврата
+            keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="a_return")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    text=text,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+            else:
+                await update.message.reply_text(
+                    text=text,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+                
+        except Exception as e:
+            logger.error(f"[MESSAGE_LIST] Error: {e}")
+            text = "❌ Произошла ошибка при загрузке мероприятий."
+            
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    text=text,
+                    reply_markup=self.create_back_button("a_return")
+                )
+
+    def create_back_button(self, callback_data: str = "a_return"):
+        """Создает кнопку возврата"""
+        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data=callback_data)]]
+        return InlineKeyboardMarkup(keyboard)
 
     async def message_render(self, update: Update, context: CallbackContext):
         context.chat_data['week'] = {'mon': 'Пн','tue': 'Вт','wed': 'Ср','thu': 'Чт','fri': 'Пт','sat': 'Сб','sun': 'Вс'}
@@ -362,11 +485,16 @@ class MtgBot:
         except Exception as e:
             logger.error(f"[MESSAGE_RENDER] Error displaying message: {e}")
 
-    # Остальные методы остаются без значительных изменений, но добавьте retry логику везде где есть сетевые запросы
-
     async def message_menu(self, update: Update, context: CallbackContext):
         self.message_state = MessageState.DEFAULT
-        _, command = update.callback_query.data.split('_')
+        data = update.callback_query.data
+        
+        # Проверяем, что данные начинаются с 'm_'
+        if not data.startswith('m_'):
+            await update.callback_query.answer("Неверный формат команды")
+            return
+            
+        _, command = data.split('_', 1)
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Меню", callback_data='a_return')]])
         
         try:
@@ -390,13 +518,99 @@ class MtgBot:
             return
             
         admin_id = update.effective_user.id
-        if not self.db.get_admin_chat(admin_id):
-            await messager.reply_text("Эта команда доступна только админам")
+        
+        # Получаем все чаты админа с топиками по умолчанию
+        admin_chats = self.db.get_admin_chats_with_threads(admin_id)
+        
+        if not admin_chats:
+            await messager.reply_text("У вас нет привязанных чатов. Используйте /set_admin в группе.")
             return
 
-        chat_id = self.db.get_admin_chat(admin_id)
+                # Если у админа только один чат - используем его
+        if len(admin_chats) == 1:
+            admin_chat_info = admin_chats[0]
+            if isinstance(admin_chat_info, tuple) and len(admin_chat_info) == 2:
+                chat_id, thread_id = admin_chat_info
+            else:
+                chat_id = admin_chat_info
+                thread_id = None
+
+            context.chat_data['selected_chat_id'] = chat_id
+            context.chat_data['selected_thread_id'] = thread_id
+            
+            message = Message()
+            message.chat_id = chat_id
+            message.message_thread_id = thread_id
+            message.participants = []
+            message.maybe_participants = []
+
+            message = self.db.save_message(message)
+            context.chat_data['db_id'] = message.db_id
+            self.message_state = MessageState.TIME
+            await self.admin_reschedule(update, context)
+        else:
+            # Если несколько чатов - показываем выбор с информацией о топиках
+            await self.show_chat_selection(update, context, admin_chats)
+    
+    async def show_chat_selection(self, update: Update, context: CallbackContext, admin_chats):
+        """Показывает список чатов для выбора при создании мероприятия с информацией о топиках"""
+        keyboard = []
+        
+        # Получаем информацию о чатах
+        for chat_id, thread_id in admin_chats:
+            try:
+                chat = await context.bot.get_chat(chat_id)
+                chat_title = chat.title or f"Чат {chat_id}"
+                
+                # Определяем тип чата
+                is_forum = chat.is_forum if hasattr(chat, 'is_forum') else False
+                
+                if thread_id and is_forum:
+                    try:
+                        # Пробуем получить информацию о топике
+                        topic = await context.bot.get_forum_topic(chat_id, thread_id)
+                        thread_info = f"Топик: {topic.name}"
+                    except:
+                        thread_info = f"Топик ID: {thread_id}"
+                    button_text = f"{chat_title} ({thread_info})"
+                elif is_forum:
+                    button_text = f"{chat_title} (форум, без топика)"
+                else:
+                    button_text = f"{chat_title} (обычный чат)"
+                    
+            except Exception as e:
+                logger.error(f"Ошибка получения информации о чате {chat_id}: {e}")
+                button_text = f"Чат {chat_id}"
+            
+            keyboard.append([InlineKeyboardButton(
+                button_text, 
+                callback_data=f"create_chat_{chat_id}_{thread_id if thread_id else 'none'}"
+            )])
+        
+        keyboard.append([InlineKeyboardButton("Отмена", callback_data="a_return")])
+        
+        await update.callback_query.edit_message_text(
+            text="*Выберите чат для мероприятия:*\n_Информация о топиках указана в скобках_",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=constants.ParseMode.MARKDOWN_V2
+        )
+    
+    async def handle_create_chat_selection(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        await query.answer()
+        
+        _, _, chat_id_str, thread_id_str = query.data.split('_')
+        chat_id = int(chat_id_str)
+        thread_id = None if thread_id_str == 'none' else int(thread_id_str)
+        
+        # Сохраняем выбранный чат и топик
+        context.chat_data['selected_chat_id'] = chat_id
+        context.chat_data['selected_thread_id'] = thread_id
+        
+        # Создаем сообщение для выбранного чата
         message = Message()
         message.chat_id = chat_id
+        message.message_thread_id = thread_id
         message.participants = []
         message.maybe_participants = []
 
@@ -475,6 +689,11 @@ class MtgBot:
         )
 
     async def admin_input(self, update: Update, context: CallbackContext):
+        # Если мы в процессе изменения топика, передаем управление handle_topic_input
+        if 'change_topic_chat' in context.chat_data:
+            await self.handle_topic_input(update, context)
+            return
+        
         try:
             message_id = context.chat_data['db_id']
         except KeyError as e:
@@ -554,15 +773,21 @@ class MtgBot:
             return
         
         try:
-            # Теперь всегда успешно, если пользователь админ чата
-            self.db.set_chat_admin(chat.id, user.id)
+            # Получаем message_thread_id если сообщение из топика
+            message_thread_id = update.message.message_thread_id if hasattr(update.message, 'message_thread_id') else None
+            
+            # Сохраняем админа с топиком по умолчанию
+            self.db.set_chat_admin(chat.id, user.id, message_thread_id)
+            
+            thread_info = ""
+            if message_thread_id:
+                thread_info = f"\nТопик по умолчанию: ID {message_thread_id}"
             
             await update.message.reply_text(
                 f"✅ Вы теперь администратор бота для этого чата!\n"
-                f"ID чата: {chat.id}\n\n"
+                f"ID чата: {chat.id}{thread_info}\n\n"
                 f"Используйте /start в личных сообщениях с ботом для управления мероприятиями.",
                 reply_to_message_id=update.message.message_id
-                # Без parse_mode - обычный текст
             )
             
             # Отправляем приветственное сообщение в личку
@@ -571,7 +796,7 @@ class MtgBot:
                     chat_id=user.id,
                     text=f"✅ Вы назначены администратором для чата:\n"
                         f"Название: {chat.title}\n"
-                        f"ID: {chat.id}\n\n"
+                        f"ID: {chat.id}{thread_info}\n\n"
                         f"Используйте /start для доступа к админ-панели."
                 )
             except Exception as e:
@@ -604,6 +829,113 @@ class MtgBot:
             self.db.remove_chats_data(chat_id)
             logger.info(f"Бот удалён из чата {chat_id}")
 
+    async def change_topic_command(self, update: Update, context: CallbackContext):
+        """Команда для изменения топика по умолчанию для чата"""
+        admin_id = update.effective_user.id
+        
+        if update.effective_chat.type != "private":
+            await update.message.reply_text("Эта команда работает только в личных сообщениях")
+            return
+        
+        # Получаем все чаты админа
+        admin_chats = self.db.get_admin_chats_with_threads(admin_id)
+        
+        if not admin_chats:
+            await update.message.reply_text("У вас нет привязанных чатов.")
+            return
+        
+        # Создаем клавиатуру для выбора чата
+        keyboard = []
+        for chat_id, thread_id in admin_chats:
+            try:
+                chat = await context.bot.get_chat(chat_id)
+                chat_title = chat.title or f"Чат {chat_id}"
+                
+                if thread_id:
+                    button_text = f"{chat_title} (текущий топик: {thread_id})"
+                else:
+                    button_text = f"{chat_title} (без топика)"
+                    
+                keyboard.append([InlineKeyboardButton(
+                    button_text, 
+                    callback_data=f"change_topic_{chat_id}"
+                )])
+            except:
+                keyboard.append([InlineKeyboardButton(
+                    f"Чат {chat_id}", 
+                    callback_data=f"change_topic_{chat_id}"
+                )])
+        
+        keyboard.append([InlineKeyboardButton("Отмена", callback_data="a_return")])
+        
+        await update.message.reply_text(
+            "Выберите чат для изменения топика:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def handle_topic_change(self, update: Update, context: CallbackContext):
+        """Обработчик выбора чата для смены топика"""
+        query = update.callback_query
+        await query.answer()
+        
+        _, _, chat_id_str = query.data.split('_')
+        chat_id = int(chat_id_str)
+        admin_id = update.effective_user.id
+        
+        # Сохраняем chat_id в контексте
+        context.chat_data['change_topic_chat'] = chat_id
+        context.chat_data['change_topic_admin'] = admin_id
+        
+        await query.edit_message_text(
+            "Введите ID нового топика для этого чата.\n\n"
+            "Как получить ID топика:\n"
+            "1. Перешлите любое сообщение из нужного топика боту @getidsbot\n"
+            "2. Или введите 0 для сброса топика (сообщения будут в общий чат)\n"
+            "3. Или введите 'same' чтобы использовать топик текущего сообщения (если команда вызвана из топика)\n\n"
+            "Введите ID топика или 'отмена' для отмены:"
+        )
+
+    async def handle_topic_input(self, update: Update, context: CallbackContext):
+        """Обработчик ввода ID топика"""
+        user_input = update.message.text.strip().lower()
+        admin_id = update.effective_user.id
+        
+        if user_input == 'отмена':
+            await update.message.reply_text("Отменено.")
+            await self.send_admin_panel(update, context, admin_id)
+            return
+        
+        chat_id = context.chat_data.get('change_topic_chat')
+        
+        if not chat_id:
+            await update.message.reply_text("Ошибка: чат не выбран.")
+            return
+        
+        try:
+            if user_input == 'same':
+                # В будущем можно реализовать получение из контекста
+                thread_id = None
+                await update.message.reply_text("Функция 'same' пока не реализована. Введите числовой ID.")
+                return
+            elif user_input == '0':
+                thread_id = None
+                message_text = f"Топик сброшен для чата {chat_id}. Новые мероприятия будут создаваться в общем чате."
+            else:
+                thread_id = int(user_input)
+                message_text = f"Топик по умолчанию для чата {chat_id} установлен: {thread_id}"
+            
+            # Обновляем в базе данных
+            self.db.update_chat_thread(chat_id, admin_id, thread_id)
+            
+            await update.message.reply_text(message_text)
+            await self.send_admin_panel(update, context, admin_id)
+            
+        except ValueError:
+            await update.message.reply_text("Неверный формат. Введите числовой ID топика или '0' или 'отмена'.")
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении топика: {e}")
+            await update.message.reply_text(f"Ошибка: {str(e)}")
+
 if __name__ == '__main__':
     bot = MtgBot()
     token = get_bot_token()
@@ -631,11 +963,14 @@ if __name__ == '__main__':
     application.add_handlers([
         CommandHandler("start", bot.start_command),
         CommandHandler("set_admin", bot.set_admin_command),
+        CommandHandler("change_topic", bot.change_topic_command),
         CallbackQueryHandler(bot.admin_panel, pattern='^a_'),
         CallbackQueryHandler(bot.message_render, pattern='^s_'),
         CallbackQueryHandler(bot.message_menu, pattern='^m_'),
         CallbackQueryHandler(bot.day_callback, pattern='^day_'),
         CallbackQueryHandler(bot.keep_time_callback, pattern='^keep_time'),
+        CallbackQueryHandler(bot.handle_create_chat_selection, pattern='^create_chat_'),
+        CallbackQueryHandler(bot.handle_topic_change, pattern='^change_topic_'),
         MessageHandler(filters.TEXT & ~filters.COMMAND, bot.admin_input),
         MessageHandler(filters.StatusUpdate.MIGRATE, bot.handle_migration)
     ])

@@ -6,6 +6,7 @@ class Message:
     def __init__(self):
         self.db_id = None
         self.chat_id = None
+        self.message_thread_id = None  # <-- НОВОЕ ПОЛЕ: ID топика форума
         self.text = "Вечернее соревнование"
         self.participants = []
         self.maybe_participants = []
@@ -16,8 +17,8 @@ class Message:
         self.links = ""
         self.image = "[\u200b](https://i.pinimg.com/736x/a6/86/75/a686751d639e642196346106fb868623.jpg)"
         self.pin_id = None
-        self.trigger = None  # Здесь будем хранить CronTrigger
-
+        self.trigger = None
+    
     def add_participant(self, user_info):
         """Добавляет участника с полной информацией"""
         user = {
@@ -85,16 +86,35 @@ class Message:
         hours, minute = map(int, self.time.split(":"))
         time = f"{hours:02d}:{minute:02d}"
         
-        # Формируем сообщение без даты и времени отправления
+        # Формируем основное сообщение
         message = (
             f"{escaped_text}\n"
             f"\n\n{self.image}"
             f"*Участвую \\({len(self.participants)}\\):*\n\t{participants_text}\n\n"
             f"*Возможно \\({len(self.maybe_participants)}\\):*\n\t{maybe_text}"
         )
-
+        
+        # Безопасно добавляем подпись
+        # Используем try-except для совместимости со старыми сообщениями
+        try:
+            # Пробуем вызвать метод add_signature если он существует
+            if hasattr(self, 'add_signature') and callable(getattr(self, 'add_signature')):
+                message = self.add_signature(message)
+            else:
+                # Для старых сообщений добавляем подпись напрямую
+                message = f"{message}\n\n━━━━━━━━━━━━━━\nПо всем вопросам писать @NikTarYT"
+        except Exception:
+            # На всякий случай, если что-то пошло не так
+            message = f"{message}\n\n━━━━━━━━━━━━━━\nПо всем вопросам писать @NikTarYT"
+        
         return message
 
+    def add_signature(self, text):
+        """Добавляет подпись к тексту сообщения"""
+        # Можно настроить подпись для разных чатов или условий
+        signature = "━━━━━━━━━━━━━━\nПо всем вопросам писать @NikTarYT"
+        return f"{text}\n\n{signature}"
+    
     # Остальные методы остаются без изменений
     def remove_participant(self, user_info):
         """Удаляет участника из списка"""
@@ -105,4 +125,3 @@ class Message:
         """Удаляет возможного участника из списка"""
         if user_info in self.maybe_participants:
             self.maybe_participants.remove(user_info)
-    
