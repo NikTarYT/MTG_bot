@@ -36,7 +36,6 @@ async def error_handler(update: Update, context: CallbackContext):
 class MessageState(Enum):
     DEFAULT = auto()
     TEXT = auto()
-    LINKS = auto()
     TIME = auto()
 
 class MtgBot:
@@ -341,8 +340,8 @@ class MtgBot:
 
         keyboard = [
             [InlineKeyboardButton("Текст", callback_data=f"m_text"), InlineKeyboardButton("Удалить", callback_data=f"m_delete")],
-            [InlineKeyboardButton("Ссылки", callback_data=f"m_links"),InlineKeyboardButton("Перенести", callback_data=f"m_reschedule")],
-            [InlineKeyboardButton("Список", callback_data="a_messages"),InlineKeyboardButton("Меню", callback_data="a_return")]
+            [InlineKeyboardButton("Список", callback_data="a_messages"),InlineKeyboardButton("Перенести", callback_data=f"m_reschedule")],
+            [InlineKeyboardButton("Меню", callback_data="a_return")]
         ]
         
         message_text = message.generate_message_text()
@@ -376,9 +375,6 @@ class MtgBot:
             elif command == "text":
                 self.message_state = MessageState.TEXT
                 context.chat_data['edit_id'] = await update.callback_query.edit_message_text("Введите текст: ", reply_markup=keyboard)
-            elif command == "links":
-                self.message_state = MessageState.LINKS
-                context.chat_data['edit_id'] = await update.callback_query.edit_message_text("Введите ссылки: ", reply_markup=keyboard)
             elif command == "reschedule":
                 self.message_state = MessageState.TIME
                 await self.admin_reschedule(update, context)
@@ -464,8 +460,7 @@ class MtgBot:
             selected_day = week[datetime.now(pytz.timezone('Europe/Moscow')).weekday()]
     
         context.chat_data['message'].day_of_week = selected_day
-        selected_day_index = week.index(selected_day)
-        notice_day_index = (selected_day_index - 2) % 7
+        notice_day_index = week.index(selected_day)
         context.chat_data['message'].day_of_notice = week[notice_day_index]
     
         h, m = context.chat_data['message'].time.split(":")
@@ -497,13 +492,6 @@ class MtgBot:
                 return
             context.chat_data['message'].time = f"{hours:02d}:{minutes:02d}"
             await self.finish_reschedule(update=update, context=context)
-
-        elif self.message_state == MessageState.LINKS:
-            message = self.db.load_message(message_id)
-            message.links = update.message.text
-            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
-            self.db.save_message(message)
-            await self.message_render(update, context)
         
         elif self.message_state == MessageState.TEXT:
             message = self.db.load_message(message_id)
@@ -566,19 +554,28 @@ class MtgBot:
             return
         
         try:
-            success = self.db.set_chat_admin(chat.id, user.id)
+            # Теперь всегда успешно, если пользователь админ чата
+            self.db.set_chat_admin(chat.id, user.id)
             
-            if success:
-                await update.message.reply_text(
-                    f"✅ Вы теперь администратор бота для этого чата!\n"
-                    f"Используйте личные сообщения с ботом для управления мероприятиями.",
-                    reply_to_message_id=update.message.message_id
+            await update.message.reply_text(
+                f"✅ Вы теперь администратор бота для этого чата!\n"
+                f"ID чата: {chat.id}\n\n"
+                f"Используйте /start в личных сообщениях с ботом для управления мероприятиями.",
+                reply_to_message_id=update.message.message_id
+                # Без parse_mode - обычный текст
+            )
+            
+            # Отправляем приветственное сообщение в личку
+            try:
+                await context.bot.send_message(
+                    chat_id=user.id,
+                    text=f"✅ Вы назначены администратором для чата:\n"
+                        f"Название: {chat.title}\n"
+                        f"ID: {chat.id}\n\n"
+                        f"Используйте /start для доступа к админ-панели."
                 )
-            else:
-                await update.message.reply_text(
-                    "❌ Не удалось назначить администратора. Возможно, вы уже являетесь администратором другого чата.",
-                    reply_to_message_id=update.message.message_id
-                )
+            except Exception as e:
+                logger.warning(f"Не удалось отправить сообщение в личку: {e}")
                 
         except Exception as e:
             logger.error(f"Ошибка при назначении администратора: {e}")

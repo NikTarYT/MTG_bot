@@ -216,18 +216,13 @@ class Database:
     # Обработка админов
 
     def set_chat_admin(self, chat_id: int, admin_id: int) -> bool:
-        """Устанавливает админа для чата. Если уже есть админ - заменяет его."""
+        """Устанавливает админа для чата. Если уже есть - обновляет запись."""
         with self.conn:
             cursor = self.conn.cursor()
             
-            # Удаляем предыдущего админа этого чата (если есть)
-            cursor.execute('DELETE FROM chat_admins WHERE chat_id=?', (chat_id,))
+            # Удаляем предыдущую запись с таким chat_id и admin_id, если она существует
+            cursor.execute('DELETE FROM chat_admins WHERE chat_id=? AND admin_id=?', (chat_id, admin_id))
             
-            # Проверяем, не является ли пользователь уже админом другого чата
-            cursor.execute('SELECT 1 FROM chat_admins WHERE admin_id=?', (admin_id,))
-            if cursor.fetchone():
-                return False
-                
             # Добавляем нового админа
             cursor.execute('''
             INSERT INTO chat_admins (chat_id, admin_id)
@@ -240,13 +235,10 @@ class Database:
         """Добавляет админа для чата. Возвращает True если успешно"""
         with self.conn:
             cursor = self.conn.cursor()
-            # Проверяем, не является ли пользователь уже админом другого чата
-            cursor.execute('SELECT 1 FROM chat_admins WHERE admin_id=?', (admin_id,))
-            if cursor.fetchone():
-                return False
-                
+            
+            # Просто добавляем, даже если уже существует
             cursor.execute('''
-            INSERT INTO chat_admins (chat_id, admin_id)
+            INSERT OR IGNORE INTO chat_admins (chat_id, admin_id)
             VALUES (?, ?)
             ''', (chat_id, admin_id))
             return True
