@@ -138,7 +138,7 @@ class MtgBot:
         logger.info(f"Расписание обновлено: {day_of_week} в {hour}:{minute:02d} (GMT+3)")
 
     async def send_scheduled_message(self, db_id):
-        max_retries = 3
+        max_retries = 1
         for attempt in range(max_retries):
             try:
                 message = self.db.load_message(db_id)
