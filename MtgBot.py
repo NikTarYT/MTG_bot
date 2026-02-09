@@ -512,19 +512,28 @@ class MtgBot:
             logger.error(f"[MESSAGE_MENU] Cannot parse command: {e}")
 
     async def create_message(self, update: Update, context: CallbackContext):
-        messager = update.message or update.callback_query
+        # Проверяем тип чата
         if update.effective_chat.type != "private":
-            await messager.reply_text("Эта команда работает только в личных сообщениях")
+            # Для callback_query используем answer, для message - reply_text
+            if update.callback_query:
+                await update.callback_query.answer("Эта команда работает только в личных сообщениях")
+            else:
+                await update.message.reply_text("Эта команда работает только в личных сообщениях")
             return
-            
+        
         admin_id = update.effective_user.id
         
         # Получаем все чаты админа с топиками по умолчанию
         admin_chats = self.db.get_admin_chats_with_threads(admin_id)
         
         if not admin_chats:
-            await messager.reply_text("У вас нет привязанных чатов. Используйте /set_admin в группе.")
+            if update.callback_query:
+                await update.callback_query.edit_message_text("У вас нет привязанных чатов. Используйте /set_admin в группе.")
+            else:
+                await update.message.reply_text("У вас нет привязанных чатов. Используйте /set_admin в группе.")
             return
+
+        # Остальной код метода остается без изменений...
 
                 # Если у админа только один чат - используем его
         if len(admin_chats) == 1:
@@ -689,6 +698,11 @@ class MtgBot:
         )
 
     async def admin_input(self, update: Update, context: CallbackContext):
+        # Проверяем, что сообщение в приватном чате
+        if update.effective_chat.type != "private":
+            # Игнорируем сообщения в групповых чатах
+            return
+        
         # Если мы в процессе изменения топика, передаем управление handle_topic_input
         if 'change_topic_chat' in context.chat_data:
             await self.handle_topic_input(update, context)
@@ -971,7 +985,7 @@ if __name__ == '__main__':
         CallbackQueryHandler(bot.keep_time_callback, pattern='^keep_time'),
         CallbackQueryHandler(bot.handle_create_chat_selection, pattern='^create_chat_'),
         CallbackQueryHandler(bot.handle_topic_change, pattern='^change_topic_'),
-        MessageHandler(filters.TEXT & ~filters.COMMAND, bot.admin_input),
+        MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, bot.admin_input),
         MessageHandler(filters.StatusUpdate.MIGRATE, bot.handle_migration)
     ])
     
